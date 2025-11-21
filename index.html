@@ -269,7 +269,7 @@
       }
       let prevMode = 'Rapid';
       function confirmModeSwitch(toMode){
-        const ok = confirm(`Switch to ${toMode} mode? This resets score and lives to 0.`);
+        const ok = confirm(`Switch to ${toMode} mode? This resets your current score and lives.`);
         if(!ok){
           // revert radio selection
           if(prevMode==='Rapid'){ modeRapidEl.checked = true; modeInfiniteEl.checked = false; }
