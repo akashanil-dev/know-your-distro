@@ -45,12 +45,16 @@
       .modal h2 { margin: 0 0 8px; }
       .modal p { margin: 8px 0 0; color: var(--muted); }
       .ctrl { margin-top: 12px; background: #1b2340; color: var(--text); border: 1px solid #34406b; padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+      .ctrl[disabled] { opacity: 0.5; cursor: not-allowed; position: relative; }
+      .ctrl[disabled]:hover::after { content: '⛔'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; }
 
       .legend { position: fixed; bottom: 10px; left: 10px; background: rgba(15,23,36,0.6); border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; font-size: 13px; color: var(--muted); }
-      .team-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 10px; margin-top: 12px; }
-      .team-btn { background: #101627; color: var(--text); border: 1px solid var(--border); padding: 10px 12px; border-radius: 10px; cursor: pointer; }
+      .team-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; justify-content: center; }
+      .team-btn { background: #101627; color: var(--text); border: 1px solid var(--border); padding: 10px 12px; border-radius: 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; justify-content: center; white-space: nowrap; min-height: 40px; }
       .team-btn.active { border-color: var(--primary); box-shadow: 0 0 0 1px rgba(127,90,240,0.5) inset; }
       .ctrl.icon { width: 36px; padding: 6px 8px; font-size: 18px; line-height: 1; }
+      .team-btn .team-icon { width: 20px; height: 20px; border-radius: 4px; box-shadow: 0 0 0 1px rgba(0,0,0,0.2) inset; }
+      .team-logo { width: 20px; height: 20px; border-radius: 4px; margin-right: 6px; vertical-align: middle; }
 
       /* Map overlay shown while holding 'M' */
       .map-overlay { position: fixed; inset: 0; display: none; place-items: center; pointer-events: none; }
@@ -73,7 +77,7 @@
   <body>
     <div class="hud">
       <div class="row">
-        <div class="pill">Team: <strong id="teamLabel">—</strong></div>
+        <div class="pill">Team: <img id="teamLogo" class="team-logo" alt="" style="display:none" /> <strong id="teamLabel">—</strong></div>
         <div class="pill">Score: <strong id="score">0</strong></div>
         <div class="pill">Total: <strong id="total">0</strong></div>
         <div class="pill">Wrong: <strong id="wrong">0</strong></div>
@@ -156,7 +160,7 @@
       const SCORE_BAD  = -20;  // wrong pickup
       const LIVES_PER_TEAM = 10; // lose on wrong picks
       const MAX_WRONG_PER_TEAM = 10; // triggers team change
-      const SPEED_BASE = 3.5;    // slower base speed for friendlier pacing
+      const SPEED_BASE = 5.5;    // slower base speed for friendlier pacing
       // Jump tuned for broader horizontal travel, not extra height
       const GRAVITY = 0.94;        // slightly stronger gravity to curb peak height
       const JUMP_VELOCITY = -25;   // moderate jump height
@@ -165,6 +169,8 @@
 
       // Global scale to "zoom out" visuals
       const SCALE = 0.75;
+      const PENGUIN_SCALE = SCALE + 0.3;
+      const TILE_SCALE = Math.max(0.4, SCALE - 0.2);
       // Fixed square tile size (pre-scale)
       const TILE_SIZE = 96; // results in 72px with SCALE=0.75
 
@@ -209,6 +215,7 @@
       const modeSubtitleEl = document.getElementById('modeSubtitle');
       const modeRapidEl = document.getElementById('modeRapid');
       const modeInfiniteEl = document.getElementById('modeInfinite');
+      const teamLogoEl = document.getElementById('teamLogo');
 
       // State and config
       let running = false;
@@ -237,10 +244,9 @@
           // Rapid mode: no persistence
           teamBtn.disabled = running; // no mid-run team changes
           if(modeSubtitleEl) modeSubtitleEl.textContent = 'Current mode: Rapid';
-          // adjust launch overlay copy
           const title = launchOverlayEl.querySelector('.title');
           const list = launchOverlayEl.querySelector('.launch-list');
-          if(title) title.textContent = 'Rapid Mode';
+          if(title) title.textContent = 'Know Your Distro 🐧';
           if(list){
             list.innerHTML = `
               <li>Play three teams, 10 lives each. No mid-run switching.</li>
@@ -292,6 +298,8 @@
 
       // Pause and input state
       let paused = false;
+      let pausedByMap = false;
+      let pausedUser = false;
       // Player movement bounds (10%–50% of screen width)
       const WANDER_LEFT_PCT = 0.10;
       const WANDER_RIGHT_PCT = 0.80;
@@ -321,8 +329,8 @@
       const penguin = {
         x: Math.floor(canvas.width * 0.25),
         y: 0,
-        w: 72 * SCALE,
-        h: 90 * SCALE,
+        w: 72 * PENGUIN_SCALE,
+        h: 90 * PENGUIN_SCALE,
         vx: 0,
         vy: 0,
         onGround: false,
@@ -353,11 +361,14 @@
       });
       // Hold 'M' to view distro map, slow game by 50%
       addEventListener('keydown', e=>{
-        if((e.key==='m'||e.key==='M') && running){
+        if(e.key==='m'||e.key==='M'){
           if(!mapViewing){
             mapViewing = true;
+            pausedByMap = true;
+            paused = pausedUser || pausedByMap;
             mapOverlayEl.classList.add('show');
             document.body.classList.add('map-viewing');
+            pauseBtn.textContent = '▶';
           }
         }
       });
@@ -365,22 +376,25 @@
         if(e.key==='m'||e.key==='M'){
           if(mapViewing){
             mapViewing = false;
+            pausedByMap = false;
+            paused = pausedUser || pausedByMap;
             mapOverlayEl.classList.remove('show');
             document.body.classList.remove('map-viewing');
+            pauseBtn.textContent = paused ? '▶' : '⏸';
           }
         }
       });
 
       // Pause/resume via P key
       function togglePause(){
-        paused = !paused;
-        if(paused){
+        pausedUser = !pausedUser;
+        paused = pausedUser || pausedByMap;
+        if(pausedUser){
           pauseOverlayEl.classList.add('show');
-          pauseBtn.textContent = '▶';
         } else {
           pauseOverlayEl.classList.remove('show');
-          pauseBtn.textContent = '⏸';
         }
+        pauseBtn.textContent = paused ? '▶' : '⏸';
       }
       addEventListener('keydown', e=>{ if(e.key==='p'||e.key==='P'){ togglePause(); }});
 
@@ -518,7 +532,7 @@
         const all = shuffle(Object.values(TEAMS).flat());
         const name = choice(all);
         const isCorrect = team && TEAMS[team] ? TEAMS[team].includes(name) : false;
-        const w = TILE_SIZE * SCALE, h = TILE_SIZE * SCALE; // square tiles
+        const w = TILE_SIZE * TILE_SCALE, h = TILE_SIZE * TILE_SCALE;
         entities.push({
           name,
           isCorrect,
@@ -730,7 +744,7 @@
           const dy = pad + (ih - drawH) / 2;
           ctx.drawImage(img, dx, dy, drawW, drawH);
           // Label strip
-          const rx = pad, ry = h - pad - 18, rw = w - pad*2, rh = 18, r = 8;
+          const rx = pad, ry = h - pad - 14, rw = w - pad*2, rh = 14, r = 8;
           ctx.fillStyle = 'rgba(0,0,0,0.35)';
           ctx.beginPath();
           ctx.moveTo(rx + r, ry);
@@ -745,7 +759,7 @@
           ctx.closePath();
           ctx.fill();
           ctx.fillStyle = '#fff';
-          ctx.font = `${Math.max(12, Math.floor(h * 0.18))}px Arial`;
+          ctx.font = `${Math.max(11, Math.floor(h * 0.16))}px Arial`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(label, w/2, ry + rh/2);
@@ -757,7 +771,7 @@
         const baseColor = COLORS[label] || '#1b2233';
         ctx.fillStyle = baseColor;
         roundRect(ctx, 0, 0, w, h, 10, true, false);
-        let size = 16; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        let size = 14; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         while(true){
           ctx.font = `${size}px system-ui`;
           const width = ctx.measureText(label).width;
@@ -797,6 +811,8 @@
           rapidTotal += 0; // no-op, clarity
         }
         team = name; teamLabelEl.textContent = team; lives = LIVES_PER_TEAM; wrong = 0; wrongEl.textContent = wrong; score = 0; scoreEl.textContent = 0; updateLivesHUD();
+        const logo = ICONS[team];
+        if(logo){ teamLogoEl.src = logo; teamLogoEl.style.display = 'inline-block'; } else { teamLogoEl.removeAttribute('src'); teamLogoEl.style.display = 'none'; }
       }
 
       function nextTeam(){
@@ -846,7 +862,12 @@
         choices.forEach(name=>{
           const btn = document.createElement('button');
           btn.className = 'team-btn' + (team===name ? ' active' : '');
-          btn.textContent = name;
+          const iconSrc = ICONS[name];
+          if(iconSrc){
+            btn.innerHTML = `<img class="team-icon" src="${iconSrc}" alt="" /> <span>${name}</span>`;
+          } else {
+            btn.textContent = name;
+          }
           btn.onclick = ()=>{ setTeam(name); overlayEl.classList.remove('show'); startGame(); };
           teamMenuEl.appendChild(btn);
         });
@@ -951,7 +972,8 @@
       requestAnimationFrame(loop);
       
           // UI handlers
-          overlayBtn.addEventListener('click', ()=>{ overlayEl.classList.remove('show'); getAudioCtx(); });
+          overlayBtn.disabled = true;
+          overlayBtn.addEventListener('click', ()=>{ if(overlayBtn.disabled) return; overlayEl.classList.remove('show'); getAudioCtx(); });
       teamBtn.addEventListener('click', ()=>{
         if(mode==='Rapid' && running){ return; } // no switching during a rapid run
         overlayTitleEl.textContent = mode==='Rapid' ? 'Rapid Mode' : 'Choose Your Team';
