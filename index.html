@@ -72,6 +72,14 @@
       /* Secret prompt for showcase mode */
       .secret-input { width: 70%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: #0f1628; color: var(--text); }
       .secret-input.invalid { border-color: #c2410c; box-shadow: 0 0 0 1px rgba(194,65,12,0.4) inset; }
+      .finish-modal { position: relative; }
+      .cross-btn { position: absolute; left: 10px; top: 10px; width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: #0f1628; color: var(--text); cursor: pointer; line-height: 26px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+      .finish-emoji { font-size: 42px; line-height: 1; margin-bottom: 6px; }
+      .finish-title { font-size: 28px; margin: 6px 0; background: linear-gradient(90deg, var(--primary), var(--good)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .finish-total { font-size: 18px; margin-top: 4px; }
+      .finish-list { text-align: left; margin: 12px auto; max-width: 520px; list-style: none; padding: 0; }
+      .finish-list li { margin: 4px 0; }
+      .finish-note { color: #e5b31a; margin-top: 12px; font-size: 13px; }
     </style>
   </head>
   <body>
@@ -137,6 +145,107 @@
       </div>
     </div>
 
+    <!-- Rapid mode finish screen -->
+<style>
+.finish-modal {
+  background: #0f1720;
+  color: #e8f0fa;
+  padding: 32px 28px;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 480px;
+  text-align: center;              /* center everything */
+  margin: 40px auto;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+}
+
+.finish-emoji {
+  font-size: 48px;
+  margin-bottom: 10px;
+}
+
+.finish-title {
+  margin: 0 0 12px;
+  font-size: 28px;
+  font-weight: 700;
+  color: #cfe1ff;
+}
+
+.finish-total {
+  margin: 4px 0 18px;
+  font-size: 20px;
+}
+
+.finish-sub {
+  margin: 0 0 10px;
+  color: #b7c7dd;
+  font-size: 15px;
+}
+
+.finish-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 18px;
+}
+
+.finish-list li {
+  background: #16232f;
+  margin: 6px auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  width: 80%;
+  font-size: 16px;
+  font-weight: 600;
+  color: #d6e3f7;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+}
+
+.finish-note {
+  margin-top: 14px;
+  font-size: 14px;
+  color: #a8bbcf;
+  line-height: 1.4;
+}
+
+.cross-btn {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  background: #1a2734;
+  border: none;
+  color: #b7c7dd;
+  font-size: 20px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+</style>
+
+    <div class="overlay" id="finishOverlay">
+  <div class="modal finish-modal">
+    <button class="cross-btn" id="finishCloseBtn">×</button>
+
+    <div class="finish-emoji">🏁</div>
+
+    <h2 class="finish-title">Rapid Mode Complete!</h2>
+
+    <p class="finish-total">
+      Final Score: <strong id="finishTotal">0</strong>
+    </p>
+
+    <p class="finish-sub">Here’s how your runs went:</p>
+
+    <ul class="finish-list" id="finishRounds"></ul>
+
+    <p class="finish-note">
+      📌 <strong>Do not refresh</strong> this tab.  
+      Keep this screen to identify the top scorer.
+    </p>
+  </div>
+</div>
+
+
     <!-- Secret showcase unlock (appears after holding H for 3s) -->
     <div class="overlay" id="secretOverlay">
       <div class="modal">
@@ -160,17 +269,19 @@
       const SCORE_BAD  = -20;  // wrong pickup
       const LIVES_PER_TEAM = 10; // lose on wrong picks
       const MAX_WRONG_PER_TEAM = 10; // triggers team change
-      const SPEED_BASE = 5.5;    // slower base speed for friendlier pacing
+      const SPEED_BASE = 4.5;    // slower base speed for friendlier pacing
       // Jump tuned for broader horizontal travel, not extra height
-      const GRAVITY = 0.94;        // slightly stronger gravity to curb peak height
-      const JUMP_VELOCITY = -25;   // moderate jump height
+      const GRAVITY = 1.25;        // slightly stronger gravity to curb peak height
+      const JUMP_VELOCITY = -30;   // moderate jump height
       const AIR_DRIFT = 0;       // forward pixels/frame while airborne
-      const AIR_DRIFT_FRICTION = 0.4; // taper forward drift each frame
+      const AIR_DRIFT_FRICTION = -10; // taper forward drift each frame
+      const MAX_AIR_JUMPS = 3; // additional jumps allowed while airborne
+      let JUMP_SECONDARY_SCALE = 0.7; // secondary jump strength (changeable)
 
       // Global scale to "zoom out" visuals
       const SCALE = 0.75;
       const PENGUIN_SCALE = SCALE + 0.3;
-      const TILE_SCALE = Math.max(0.4, SCALE - 0.2);
+      const TILE_SCALE = Math.max(0.4, (SCALE - 0.2) * 1.3);
       // Fixed square tile size (pre-scale)
       const TILE_SIZE = 96; // results in 72px with SCALE=0.75
 
@@ -216,6 +327,10 @@
       const modeRapidEl = document.getElementById('modeRapid');
       const modeInfiniteEl = document.getElementById('modeInfinite');
       const teamLogoEl = document.getElementById('teamLogo');
+      const finishOverlayEl = document.getElementById('finishOverlay');
+      const finishTotalEl = document.getElementById('finishTotal');
+      const finishRoundsEl = document.getElementById('finishRounds');
+      const finishCloseBtn = document.getElementById('finishCloseBtn');
 
       // State and config
       let running = false;
@@ -233,46 +348,93 @@
       let mode = 'Rapid';
       let rapidTeamsPlayed = [];
       let rapidTotal = 0;
+      let rapidScores = [];
       totalEl.textContent = rapidTotal;
 
       function setMode(m){
-        mode = m;
-        if(mode==='Rapid'){
-          rapidTeamsPlayed = [];
-          rapidTotal = 0;
-          totalEl.textContent = rapidTotal;
-          // Rapid mode: no persistence
-          teamBtn.disabled = running; // no mid-run team changes
-          if(modeSubtitleEl) modeSubtitleEl.textContent = 'Current mode: Rapid';
-          const title = launchOverlayEl.querySelector('.title');
-          const list = launchOverlayEl.querySelector('.launch-list');
-          if(title) title.textContent = 'Know Your Distro 🐧';
-          if(list){
-            list.innerHTML = `
-              <li>Play three teams, 10 lives each. No mid-run switching.</li>
-              <li>Total score is the sum of all three runs.</li>
-              <li>Jump: Space / Up / Tap. Map: hold M (slows scene).</li>
-              <li>Speed ramps with score up to 2×; resets each team.</li>
-            `;
-          }
-        } else {
-          // Infinite: keep current run total (not persisted); track high score in cache
-          total = 0; totalEl.textContent = total;
-          teamBtn.disabled = false;
-          if(modeSubtitleEl) modeSubtitleEl.textContent = 'Current mode: Infinite';
-          const title = launchOverlayEl.querySelector('.title');
-          const list = launchOverlayEl.querySelector('.launch-list');
-          if(title) title.textContent = 'Know Your Distro 🐧';
-          if(list){
-            list.innerHTML = `
-              <li>Pick a team and play indefinitely. You can switch anytime.</li>
-              <li>Correct: +50 points. Wrong: -20 points.</li>
-              <li>Jump: Space / Up / Tap. Map: hold M (slows scene).</li>
-              <li>Speed ramps with score up to 2×.</li>
-            `;
-          }
-        }
-      }
+  mode = m;
+
+  if(mode === 'Rapid'){
+    rapidTeamsPlayed = [];
+    rapidTotal = 0;
+    rapidScores = [];
+    totalEl.textContent = rapidTotal;
+
+    teamBtn.disabled = running;
+    if(modeSubtitleEl) modeSubtitleEl.textContent = 'Current mode: Rapid';
+
+    const title = launchOverlayEl.querySelector('.title');
+    const list = launchOverlayEl.querySelector('.launch-list');
+    if(title) title.textContent = 'Know Your Distro 🐧';
+
+    if(list){
+      list.innerHTML = `
+<div style="padding:12px; font-size:16px; line-height:1.55;">
+
+<h3 style="margin:0 0 6px;">🎮 Rapid Mode</h3>
+<p style="margin:4px 0;">Three runs, each with 10 lives. Your final score is the sum of all three.</p>
+
+<h3 style="margin:14px 0 6px;">🗺️ Map</h3>
+<p style="margin:4px 0;">Hold <b>M</b> to view the map. The game pauses while it's open.</p>
+
+<h3 style="margin:14px 0 6px;">✨ Scoring</h3>
+<ul style="margin:4px 0 10px 18px;">
+  <li>Correct: <b>+50</b></li>
+  <li>Wrong: <b>–20</b></li>
+</ul>
+
+<h3 style="margin:14px 0 6px;">⏫ Controls</h3>
+<ul style="margin:4px 0 10px 18px;">
+  <li>Jump: Space / Up / Tap</li>
+  <li>Move: A (left), D (right)</li>
+</ul>
+
+</div>
+      `;
+    }
+
+  } else {
+    // Infinite Mode
+    total = 0;
+    totalEl.textContent = total;
+    teamBtn.disabled = false;
+    if(modeSubtitleEl) modeSubtitleEl.textContent = 'Current mode: Infinite';
+
+    const title = launchOverlayEl.querySelector('.title');
+    const list = launchOverlayEl.querySelector('.launch-list');
+    if(title) title.textContent = 'Know Your Distro 🐧';
+
+    if(list){
+      list.innerHTML = `
+<div style="padding:12px; font-size:16px; line-height:1.55;">
+
+<h3 style="margin:0 0 6px;">♾️ Infinite Mode</h3>
+<p style="margin:4px 0;">Play endlessly and switch teams anytime.</p>
+
+<h3 style="margin:14px 0 6px;">✨ Scoring</h3>
+<ul style="margin:4px 0 10px 18px;">
+  <li>Correct: <b>+50</b></li>
+  <li>Wrong: <b>–20</b></li>
+</ul>
+
+<h3 style="margin:14px 0 6px;">⏫ Controls</h3>
+<ul style="margin:4px 0 10px 18px;">
+  <li>Jump: Space / Up / Tap</li>
+  <li>Move: A (left), D (right)</li>
+</ul>
+
+<h3 style="margin:14px 0 6px;">🗺️ Map</h3>
+<p style="margin:4px 0;">Hold <b>M</b> to view the map and slow the scene.</p>
+
+<h3 style="margin:14px 0 6px;">⚡ Speed</h3>
+<p style="margin:4px 0;">Speed increases gradually up to <b>2×</b>.</p>
+
+</div>
+      `;
+    }
+  }
+}
+
       let prevMode = 'Rapid';
       function confirmModeSwitch(toMode){
         const ok = confirm(`Switch to ${toMode} mode? This resets your current score and lives.`);
@@ -283,7 +445,7 @@
           return false;
         }
         // reset visible counters
-        score = 0; wrong = 0; total = 0; rapidTotal = 0; lives = LIVES_PER_TEAM; team = null; teamLabelEl.textContent = '—';
+        score = 0; wrong = 0; total = 0; rapidTotal = 0; rapidScores = []; lives = LIVES_PER_TEAM; team = null; teamLabelEl.textContent = '—';
         scoreEl.textContent = 0; wrongEl.textContent = 0; totalEl.textContent = 0; updateLivesHUD();
         entities.length = 0; running = false;
         setMode(toMode);
@@ -339,11 +501,17 @@
       const groundY = () => canvas.height - 100; // ice surface
 
       // Inputs
+        let airJumpsLeft = MAX_AIR_JUMPS;
         function jump(){
           if(penguin.onGround){
             penguin.vy = JUMP_VELOCITY;
-            penguin.vx = AIR_DRIFT; // add forward drift to widen the jump
+            penguin.vx = AIR_DRIFT;
             penguin.onGround = false;
+            airJumpsLeft = MAX_AIR_JUMPS;
+          } else if(airJumpsLeft > 0){
+            penguin.vy = JUMP_VELOCITY * JUMP_SECONDARY_SCALE;
+            penguin.vx = AIR_DRIFT;
+            airJumpsLeft -= 1;
           }
         }
       addEventListener('keydown', e=>{ if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW'){ jump(); } });
@@ -734,7 +902,7 @@
         if (iconReady[label]){
           const img = iconImages[label];
           const iw = w - pad*2;
-          const ih = h - pad*2 - 18; // leave room for label
+          const ih = h - pad*2 - 24;
           const nw = img.naturalWidth || img.width || iw;
           const nh = img.naturalHeight || img.height || ih;
           const scale = Math.min(iw / nw, ih / nh);
@@ -744,7 +912,7 @@
           const dy = pad + (ih - drawH) / 2;
           ctx.drawImage(img, dx, dy, drawW, drawH);
           // Label strip
-          const rx = pad, ry = h - pad - 14, rw = w - pad*2, rh = 14, r = 8;
+          const rx = pad, ry = h - pad - 24, rw = w - pad*2, rh = 24, r = 8;
           ctx.fillStyle = 'rgba(0,0,0,0.35)';
           ctx.beginPath();
           ctx.moveTo(rx + r, ry);
@@ -759,7 +927,7 @@
           ctx.closePath();
           ctx.fill();
           ctx.fillStyle = '#fff';
-          ctx.font = `${Math.max(11, Math.floor(h * 0.16))}px Arial`;
+          ctx.font = `${Math.max(12, Math.floor(h * 0.21))}px Arial`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(label, w/2, ry + rh/2);
@@ -771,7 +939,7 @@
         const baseColor = COLORS[label] || '#1b2233';
         ctx.fillStyle = baseColor;
         roundRect(ctx, 0, 0, w, h, 10, true, false);
-        let size = 14; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        let size = 18; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         while(true){
           ctx.font = `${size}px system-ui`;
           const width = ctx.measureText(label).width;
@@ -818,12 +986,19 @@
       function nextTeam(){
         running = false;
         if(mode==='Rapid'){
+          if(team!==null){ rapidScores.push(score); }
+          team = null;
           if(rapidTeamsPlayed.length >= 3){
-            // Finished rapid run
-            overlayTitleEl.textContent = 'Rapid Mode Finished';
-            overlayTextEl.textContent = `Final Score: ${rapidTotal}`;
-            teamMenuEl.innerHTML = '';
-            overlayEl.classList.add('show');
+            finishTotalEl.textContent = rapidTotal;
+            finishRoundsEl.innerHTML = '';
+            for(let i=0;i<3;i++){
+              const li = document.createElement('li');
+              const s = rapidScores[i] || 0;
+              li.textContent = `Round ${i+1}: ${s}`;
+              finishRoundsEl.appendChild(li);
+            }
+            overlayEl.classList.remove('show');
+            finishOverlayEl.classList.add('show');
             return;
           }
           overlayTitleEl.textContent = `Choose Team ${rapidTeamsPlayed.length+1} of 3`;
@@ -843,6 +1018,7 @@
         if(mode==='Rapid'){
           rapidTeamsPlayed = [];
           rapidTotal = 0;
+          rapidScores = [];
           totalEl.textContent = rapidTotal;
           overlayTitleEl.textContent = 'Rapid Mode';
           overlayTextEl.textContent = 'Pick your first team (3 total). 10 lives each.';
@@ -906,7 +1082,7 @@
           penguin.vx = 0; // zero out drift when grounded
         }
           const gY = groundY() - penguin.h;
-          if(penguin.y >= gY){ penguin.y = gY; penguin.vy = 0; penguin.onGround = true; }
+          if(penguin.y >= gY){ penguin.y = gY; penguin.vy = 0; penguin.onGround = true; airJumpsLeft = MAX_AIR_JUMPS; }
 
           // Entities move (slow by 50% while viewing map); keep vx synced to current speed
           entities.forEach(e=>{ e.vx = -speed; e.x += e.vx * getSpeedScale(); });
@@ -967,11 +1143,12 @@
         drawPenguin(penguin);
         entities.forEach(drawEntity);
 
-        requestAnimationFrame(loop);
+      requestAnimationFrame(loop);
       }
       requestAnimationFrame(loop);
       
           // UI handlers
+          finishCloseBtn.addEventListener('click', ()=>{ finishOverlayEl.classList.remove('show'); });
           overlayBtn.disabled = true;
           overlayBtn.addEventListener('click', ()=>{ if(overlayBtn.disabled) return; overlayEl.classList.remove('show'); getAudioCtx(); });
       teamBtn.addEventListener('click', ()=>{
